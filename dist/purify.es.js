@@ -656,7 +656,7 @@ function createDOMPurify() {
       return false;
     }
 
-    if (typeof elm.nodeName !== 'string' || typeof elm.textContent !== 'string' || typeof elm.removeChild !== 'function' || !(elm.attributes instanceof NamedNodeMap) || typeof elm.removeAttribute !== 'function' || typeof elm.setAttribute !== 'function' || typeof elm.namespaceURI !== 'string') {
+    if (typeof elm.__depth !== 'undefined' && typeof elm.__depth !== 'number' || typeof elm.__removalCount !== 'undefined' && typeof elm.__removalCount !== 'number' || typeof elm.nodeName !== 'string' || typeof elm.textContent !== 'string' || typeof elm.removeChild !== 'function' || !(elm.attributes instanceof NamedNodeMap) || typeof elm.removeAttribute !== 'function' || typeof elm.setAttribute !== 'function' || typeof elm.namespaceURI !== 'string') {
       return true;
     }
 
@@ -736,6 +736,14 @@ function createDOMPurify() {
         try {
           var htmlToInsert = currentNode.innerHTML;
           currentNode.insertAdjacentHTML('AfterEnd', trustedTypesPolicy ? trustedTypesPolicy.createHTML(htmlToInsert) : htmlToInsert);
+          /*
+             Count removals for an accurate element nesting depth
+             measurement to prevent mXSS attacks
+          */
+          var newNode = currentNode.nextSibling;
+          if (newNode) {
+            newNode.__removalCount = (currentNode.__removalCount || 0) + 1;
+          }
         } catch (_) {}
       }
 
@@ -1115,8 +1123,27 @@ function createDOMPurify() {
         continue;
       }
 
+      /* Set the nesting depth of an element */
+      if (currentNode.nodeType === 1) {
+        if (currentNode.parentNode && currentNode.parentNode.__depth) {
+          /*
+            We want the depth of the node in the original tree, which can
+            change when it's removed from its parent.
+          */
+          currentNode.__depth = (currentNode.__removalCount || 0) + currentNode.parentNode.__depth + 1;
+        } else {
+          currentNode.__depth = 1;
+        }
+      }
+
+      /* Remove an element if nested too deeply to avoid mXSS */
+      if (currentNode.__depth >= MAX_NESTING_DEPTH) {
+        _forceRemove(currentNode);
+      }
+
       /* Shadow DOM detected, sanitize it */
       if (currentNode.content instanceof DocumentFragment) {
+        currentNode.content.__depth = currentNode.__depth;
         _sanitizeShadowDOM(currentNode.content);
       }
 

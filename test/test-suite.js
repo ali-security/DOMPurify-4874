@@ -10,6 +10,89 @@ module.exports = function (DOMPurify, window, tests, xssTests) {
     );
   });
 
+  /* Add compatibility for IE */
+  const strRepeat = function (str, num) {
+    return new Array(num + 1).join(str);
+  }
+
+  QUnit.test('Test proper handling of nesting-based mXSS 1/3', function (assert) {
+    let dirty = `${strRepeat(`<div>`, 250)}${strRepeat(`</div>`, 250)}<img>`;
+    let expected = `${strRepeat(`<div>`,250)}${strRepeat(`</div>`, 250)}<img>`;
+    let clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `${strRepeat(`<div>`, 255)}${strRepeat(`</div>`, 255)}<img>`;
+    expected = `${strRepeat(`<div>`, 253)}${strRepeat(`</div>`, 253)}<img>`;
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `${strRepeat(`<div>`, 257)}${strRepeat(`</div>`, 257)}<img>`;
+    expected = `${strRepeat(`<div>`, 253)}${strRepeat(`</div>`, 253)}<img>`;
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `<div><template>${strRepeat(`<div>`, 257)}${strRepeat(`</div>`, 257)}<img>`;
+    expected = `<div><template>${strRepeat(`<div>`, 251)}${strRepeat(`</div>`, 251)}<img></template></div>`;
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `<div><template>${strRepeat(`<r>`, 255)}<img>${strRepeat(`</r>`, 255)}</template></div><img>`;
+    expected = [
+      `<div><template></template></div><img>`,
+      `<div><template><html><head></head><body></body></html></template></div><img>`,
+      `<div><template><head></head><body></body></template></div><img>`,
+    ];
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+  });
+
+  QUnit.test('Test proper handling of nesting-based mXSS 2/3', function (assert) {
+    let dirty = `<form><input name="__depth">${strRepeat(`<div>`, 500)}${strRepeat(`</div>`, 500)}<img>`;
+    let expected = [
+        ``,
+        `<form><input name="__depth">${strRepeat(`<div>`, 252)}${strRepeat(`</div>`, 252)}<img></form>`,
+    ];
+    let clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `<form><input name="__depth"></form>${strRepeat(`<div>`, 500)}${strRepeat(`</div>`, 500)}<img>`;
+    expected = [
+        `${strRepeat(`<div>`, 253)}${strRepeat(`</div>`, 253)}<img>`,
+        `<form><input name="__depth"></form>${strRepeat(`<div>`, 253)}${strRepeat(`</div>`, 253)}<img>`
+    ];
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `<form><input name="__removalCount">${strRepeat(`<div>`, 500)}${strRepeat(`</div>`, 500)}<img>`;
+    expected = [
+      ``,
+      `<form><input name="__removalCount">${strRepeat(`<div>`, 252)}${strRepeat(`</div>`, 252)}<img></form>`,
+    ];
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `<form><input name="__removalCount"></form>${strRepeat(`<div>`, 500)}${strRepeat(`</div>`, 500)}<img>`;
+    expected = [
+      `${strRepeat(`<div>`, 253)}${strRepeat(`</div>`, 253)}<img>`,
+      `<form><input name="__removalCount"></form>${strRepeat(`<div>`, 253)}${strRepeat(`</div>`, 253)}<img>`,
+    ];
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+  });
+
+  QUnit.test('Test proper handling of nesting-based mXSS 3/3', function (assert) {
+
+    let dirty = `<form><input name="__depth">`;
+    let expected = [``, `<form><input name="__depth"></form>`];
+    let clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+
+    dirty = `<form><input name="__removalCount">`;
+    expected = [``, `<form><input name="__removalCount"></form>`];
+    clean = DOMPurify.sanitize(dirty);
+    assert.contains(clean, expected);
+  });
+
   // Config-Flag Tests
   QUnit.test(
     'Config-Flag tests: KEEP_CONTENT + ALLOWED_TAGS / ALLOWED_ATTR',
