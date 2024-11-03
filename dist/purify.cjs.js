@@ -7,6 +7,8 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
 var hasOwnProperty = Object.hasOwnProperty,
     setPrototypeOf = Object.setPrototypeOf,
     isFrozen = Object.isFrozen,
+    getPrototypeOf = Object.getPrototypeOf,
+    getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor,
     objectKeys = Object.keys;
 var freeze = Object.freeze,
     seal = Object.seal; // eslint-disable-line import/no-mutable-exports
@@ -56,6 +58,7 @@ var regExpTest = unapply(RegExp.prototype.test);
 var regExpCreate = unconstruct(RegExp);
 
 var typeErrorCreate = unconstruct(TypeError);
+var numberIsNaN = unapply(Number.isNaN);
 
 function unapply(func) {
   return function (thisArg) {
@@ -119,6 +122,34 @@ function clone(object) {
   }
 
   return newObject;
+}
+
+/* IE10 doesn't support __lookupGetter__ so lets'
+ * simulate it. It also automatically checks
+ * if the prop is function or getter and behaves
+ * accordingly. */
+function lookupGetter(object, prop) {
+  while (object !== null) {
+    var desc = getOwnPropertyDescriptor(object, prop);
+    if (desc) {
+      if (desc.get) {
+        return unapply(desc.get);
+      }
+
+      if (typeof desc.value === 'function') {
+        return unapply(desc.value);
+      }
+    }
+
+    object = getPrototypeOf(object);
+  }
+
+  function fallbackValue(element) {
+    console.warn('fallback value for', element);
+    return null;
+  }
+
+  return fallbackValue;
 }
 
 var html = freeze(['a', 'abbr', 'acronym', 'address', 'area', 'article', 'aside', 'audio', 'b', 'bdi', 'bdo', 'big', 'blink', 'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'center', 'cite', 'code', 'col', 'colgroup', 'content', 'data', 'datalist', 'dd', 'decorator', 'del', 'details', 'dfn', 'dir', 'div', 'dl', 'dt', 'element', 'em', 'fieldset', 'figcaption', 'figure', 'font', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header', 'hgroup', 'hr', 'html', 'i', 'img', 'input', 'ins', 'kbd', 'label', 'legend', 'li', 'main', 'map', 'mark', 'marquee', 'menu', 'menuitem', 'meter', 'nav', 'nobr', 'ol', 'optgroup', 'option', 'output', 'p', 'picture', 'pre', 'progress', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'section', 'select', 'shadow', 'small', 'source', 'spacer', 'span', 'strike', 'strong', 'style', 'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'template', 'textarea', 'tfoot', 'th', 'thead', 'time', 'tr', 'track', 'tt', 'u', 'ul', 'var', 'video', 'wbr']);
@@ -235,10 +266,15 @@ function createDOMPurify() {
       NodeFilter = window.NodeFilter,
       _window$NamedNodeMap = window.NamedNodeMap,
       NamedNodeMap = _window$NamedNodeMap === undefined ? window.NamedNodeMap || window.MozNamedAttrMap : _window$NamedNodeMap,
+      Element = window.Element,
       Text = window.Text,
       Comment = window.Comment,
       DOMParser = window.DOMParser,
       trustedTypes = window.trustedTypes;
+
+
+  var ElementPrototype = Element.prototype;
+  var getParentNode = lookupGetter(ElementPrototype, 'parentNode');
 
   // As per issue #47, the web-components registry is inherited by a
   // new document created via createHTMLDocument. As per the spec
@@ -246,7 +282,6 @@ function createDOMPurify() {
   // a new empty registry is used when creating a template contents owner
   // document, so we use that as our parent document to ensure nothing
   // is inherited.
-
   if (typeof HTMLTemplateElement === 'function') {
     var template = document.createElement('template');
     if (template.content && template.content.ownerDocument) {
@@ -370,6 +405,9 @@ function createDOMPurify() {
   /* Attributes safe for values like "javascript:" */
   var URI_SAFE_ATTRIBUTES = null;
   var DEFAULT_URI_SAFE_ATTRIBUTES = addToSet({}, ['alt', 'class', 'for', 'id', 'label', 'name', 'pattern', 'placeholder', 'summary', 'title', 'value', 'style', 'xmlns']);
+
+  /* Specify the maximum element nesting depth to prevent mXSS */
+  var MAX_NESTING_DEPTH = 255;
 
   /* Keep a reference to config to pass to hooks */
   var CONFIG = null;
@@ -929,8 +967,32 @@ function createDOMPurify() {
         continue;
       }
 
+      var parentNode = getParentNode(shadowNode);
+
+      /* Set the nesting depth of an element */
+      if (shadowNode.nodeType === 1) {
+        if (parentNode && parentNode.__depth) {
+          /*
+            We want the depth of the node in the original tree, which can
+            change when it's removed from its parent.
+          */
+          shadowNode.__depth = (shadowNode.__removalCount || 0) + parentNode.__depth + 1;
+        } else {
+          shadowNode.__depth = 1;
+        }
+      }
+
+      /*
+       * Remove an element if nested too deeply to avoid mXSS
+       * or if the __depth might have been tampered with
+       */
+      if (shadowNode.__depth >= MAX_NESTING_DEPTH || numberIsNaN(shadowNode.__depth)) {
+        _forceRemove(shadowNode);
+      }
+
       /* Deep shadow DOM detected */
       if (shadowNode.content instanceof DocumentFragment) {
+        shadowNode.content.__depth = shadowNode.__depth;
         _sanitizeShadowDOM(shadowNode.content);
       }
 
