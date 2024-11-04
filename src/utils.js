@@ -7,7 +7,7 @@ const {
   keys: objectKeys,
 } = Object;
 
-let { freeze, seal } = Object; // eslint-disable-line import/no-mutable-exports
+let { freeze, seal, create } = Object; // eslint-disable-line import/no-mutable-exports
 let { apply, construct } = typeof Reflect !== 'undefined' && Reflect;
 
 if (!apply) {
@@ -93,11 +93,11 @@ export function addToSet(set, array) {
 
 /* Shallow clone an object */
 export function clone(object) {
-  const newObject = {};
+  const newObject = create(null);
 
   let property;
   for (property in object) {
-    if (apply(hasOwnProperty, object, [property])) {
+    if (apply(hasOwnProperty, object, [property]) === true) {
       newObject[property] = object[property];
     }
   }

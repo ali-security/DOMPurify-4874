@@ -15,7 +15,8 @@
       getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor,
       objectKeys = Object.keys;
   var freeze = Object.freeze,
-      seal = Object.seal; // eslint-disable-line import/no-mutable-exports
+      seal = Object.seal,
+      create = Object.create; // eslint-disable-line import/no-mutable-exports
 
   var _ref = typeof Reflect !== 'undefined' && Reflect,
       apply = _ref.apply,
@@ -116,11 +117,11 @@
 
   /* Shallow clone an object */
   function clone(object) {
-    var newObject = {};
+    var newObject = create(null);
 
     var property = void 0;
     for (property in object) {
-      if (apply(hasOwnProperty, object, [property])) {
+      if (apply(hasOwnProperty, object, [property]) === true) {
         newObject[property] = object[property];
       }
     }
@@ -436,6 +437,9 @@
       if (!cfg || (typeof cfg === 'undefined' ? 'undefined' : _typeof(cfg)) !== 'object') {
         cfg = {};
       }
+
+      /* Shield configuration object from prototype pollution */
+      cfg = clone(cfg);
 
       /* Set configuration parameters */
       ALLOWED_TAGS = 'ALLOWED_TAGS' in cfg ? addToSet({}, cfg.ALLOWED_TAGS) : DEFAULT_ALLOWED_TAGS;
